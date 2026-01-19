@@ -1,297 +1,220 @@
-const btn = document.getElementById("btn");
-const statusEl = document.getElementById("status");
-const transcriptEl = document.getElementById("transcript");
-const replyEl = document.getElementById("reply");
-const player = document.getElementById("player");
-
-let mediaRecorder = null;
-let chunks = [];
-let stream = null;
-let isRecording = false;
-
-function setStatus(s) {
-  statusEl.textContent = s;
-}
-
-function base64ToBlob(base64, mimeType) {
-  const byteChars = atob(base64);
-  const byteNumbers = new Array(byteChars.length);
-  for (let i = 0; i < byteChars.length; i++) {
-    byteNumbers[i] = byteChars.charCodeAt(i);
-  }
-  const byteArray = new Uint8Array(byteNumbers);
-  return new Blob([byteArray], { type: mimeType });
-}
-
-// ===== Memory (client-side) =====
-const MEM_KEY = "companion_memory_v1";
-
-function loadMemory() {
-  try {
-    return JSON.parse(localStorage.getItem(MEM_KEY)) || { turns: [], summary: "" };
-  } catch {
-    return { turns: [], summary: "" };
-  }
-}
-
-function saveMemory(mem) {
-  localStorage.setItem(MEM_KEY, JSON.stringify(mem));
-}
-
-function resetMemory() {
-  localStorage.removeItem(MEM_KEY);
-}
-
-function pushTurn(role, content) {
-  const mem = loadMemory();
-  mem.turns.push({ role, content });
-
-  // Keep last 12 messages (6 turns user/assistant)
-  const MAX_MSG = 12;
-  if (mem.turns.length > MAX_MSG) mem.turns = mem.turns.slice(-MAX_MSG);
-
-  saveMemory(mem);
-  return mem;
-}
-
-
-
-async function startRecording() {
-  transcriptEl.textContent = "—";
-  replyEl.textContent = "—";
-  player.removeAttribute("src");
-  player.load();
-
-  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-  // Most browsers support webm/opus. If not, it will fallback.
-  const candidates = [
-  "audio/webm;codecs=opus",
-  "audio/webm",
-  "audio/mp4",               // parfois meilleur selon OS
-];
-
-let chosen = "";
-for (const t of candidates) {
-  if (MediaRecorder.isTypeSupported(t)) { chosen = t; break; }
-}
-
-mediaRecorder = new MediaRecorder(stream, chosen ? { mimeType: chosen } : undefined);
-console.log("MediaRecorder mimeType:", mediaRecorder.mimeType);
-
-
-  chunks = [];
-  mediaRecorder.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) chunks.push(e.data);
-  };
-
-  mediaRecorder.onstop = async () => {
-    try {
-      setStatus("uploading…");
-      btn.disabled = true;
-
-      const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
-      const blobType = (blob.type || "").toLowerCase();
-
-      // Déterminer une extension cohérente
-      let ext = "webm";
-      if (blobType.includes("mp4")) ext = "mp4";
-      else if (blobType.includes("wav")) ext = "wav";
-      else if (blobType.includes("mpeg")) ext = "mp3";
-      else if (blobType.includes("webm")) ext = "webm";
-
-      const filename = `recording.${ext}`;
-
-      console.log("Recorded blob type:", blob.type, "size:", blob.size);
-
-      const form = new FormData();
-      form.append("audio", blob, filename);
-
-
-      /**
-       * /api/talk
-       */
-      const resp = await fetch("/api/talk", { method: "POST", body: form });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || "Server error");
-
-
-
-      transcriptEl.textContent = data.transcript || "(vide)";
-      replyEl.textContent = data.replyText || "(vide)";
-
-      const audioBlob = base64ToBlob(data.audioMp3Base64, "audio/mpeg");
-      const audioUrl = URL.createObjectURL(audioBlob);
-      player.src = audioUrl;
-
-      setStatus("playing");
-      await player.play().catch(() => { /* user gesture sometimes required */ });
-    } catch (err) {
-      console.error(err);
-      setStatus("error (voir console)");
-    } finally {
-      btn.disabled = false;
-      setStatus("idle");
-    }
-  };
-
-  mediaRecorder.start();
-  isRecording = true;
-  setStatus("recording…");
-  btn.textContent = "⏹️ Stop";
-}
-
-async function stopRecording() {
-  if (!mediaRecorder) return;
-
-  mediaRecorder.stop();
-  isRecording = false;
-  setStatus("processing…");
-  btn.textContent = "🎙️ Parler";
-
-  if (stream) {
-    stream.getTracks().forEach((t) => t.stop());
-    stream = null;
-  }
-}
-
-btn.addEventListener("click", async () => {
-  if (!isRecording) {
-    await startRecording();
-  } else {
-    await stopRecording();
-  }
-});
-
+import { getDom, setStatus } from "./dom.js";
+import { setPlayerFromMp3Base64 } from "./audio.js";
+import { loadMemory, pushTurn, resetMemory } from "./memory.js";
+import { apiTalk, apiSpeak, apiSpeakStructured } from "./api.js";
+import { updateStructuredUI, resetStructuredUI } from "./avatar.js";
+import { toggleRecording, isRecording } from "./recorder.js";
+//import { connectRealtime, disconnectRealtime, isRealtimeConnected } from "./realtime.js";
+import { connectRealtime, disconnectRealtime, isRealtimeConnected, realtimeStartTalking, realtimeStopTalkingAndRespond } from "./realtime.js";
 
 
 /**
- * /api/speak
+ * /public/app.js
  */
-document.getElementById("ask").addEventListener("click", async () => {
-  try {
-    setStatus("asking…");
-    const text = document.getElementById("q").value || "";
-    const resp = await fetch("/api/speak", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text })
-    });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || "Server error");
 
-    replyEl.textContent = data.replyText || "(vide)";
-    const audioBlob = base64ToBlob(data.audioMp3Base64, "audio/mpeg");
-    player.src = URL.createObjectURL(audioBlob);
-    setStatus("playing");
-    await player.play().catch(() => {});
+const dom = getDom();
+
+function resetPlayerAndText() {
+  dom.transcriptEl.textContent = "—";
+  dom.replyEl.textContent = "—";
+  dom.player.removeAttribute("src");
+  dom.player.load();
+}
+
+// ===== Button bindings =====
+
+// Micro (MediaRecorder externalisé dans recorder.js)
+dom.btn.addEventListener("click", async () => {
+  // Pure cosmétique : si on était en train d'enregistrer, on affiche "processing…" dès le clic stop
+  const wasRecording = isRecording();
+  if (wasRecording) {
+    setStatus(dom, "processing…");
+    dom.btn.textContent = "🎙️ Parler";
+  }
+
+  await toggleRecording({
+    onStart: () => {
+      resetPlayerAndText();
+      setStatus(dom, "recording…");
+      dom.btn.textContent = "⏹️ Stop";
+    },
+
+    onStop: async ({ formData }) => {
+      try {
+        setStatus(dom, "uploading…");
+        dom.btn.disabled = true;
+
+        const data = await apiTalk(formData);
+
+        dom.transcriptEl.textContent = data.transcript || "(vide)";
+        dom.replyEl.textContent = data.replyText || "(vide)";
+
+        if (data.audioMp3Base64) {
+          setPlayerFromMp3Base64(dom.player, data.audioMp3Base64);
+          setStatus(dom, "playing");
+          await dom.player.play().catch(() => {});
+        } else {
+          setStatus(dom, "idle");
+        }
+      } catch (err) {
+        console.error(err);
+        setStatus(dom, "error (voir console)");
+      } finally {
+        dom.btn.disabled = false;
+        dom.btn.textContent = "🎙️ Parler";
+        if (dom.statusEl.textContent !== "error (voir console)") {
+          setStatus(dom, "idle");
+        }
+      }
+    },
+
+    onError: (err) => {
+      console.error(err);
+      setStatus(dom, "error (voir console)");
+      dom.btn.textContent = "🎙️ Parler";
+    },
+  });
+});
+
+// /api/speak
+dom.askBtn.addEventListener("click", async () => {
+  try {
+    setStatus(dom, "asking…");
+    const text = dom.qInput.value || "";
+
+    const data = await apiSpeak(text);
+
+    dom.replyEl.textContent = data.replyText || "(vide)";
+    if (data.audioMp3Base64) setPlayerFromMp3Base64(dom.player, data.audioMp3Base64);
+
+    setStatus(dom, "playing");
+    await dom.player.play().catch(() => {});
   } catch (e) {
     console.error(e);
-    setStatus("error (voir console)");
+    setStatus(dom, "error (voir console)");
   } finally {
-    setStatus("idle");
+    setStatus(dom, "idle");
   }
 });
 
-
-
-
-
-
-
-
-
-/**
- * Gestion des émotions
- */
-const avatar = document.getElementById("avatar");
-const intentPill = document.getElementById("intentPill");
-const emotionPill = document.getElementById("emotionPill");
-const confPill = document.getElementById("confPill");
-
-const emotionToAvatar = {
-  neutral: "./avatars/neutral.png",
-  happy: "./avatars/happy.png",
-  curious: "./avatars/curious.png",
-  concerned: "./avatars/concerned.png",
-  confident: "./avatars/confident.png",
-  apologetic: "./avatars/apologetic.png",
-  playful: "./avatars/playful.png"
-};
-
-/**
- * /api/speak_structured
- */
-document.getElementById("ask2").addEventListener("click", async () => {
+// /api/speak_structured
+dom.ask2Btn.addEventListener("click", async () => {
   try {
-    setStatus("asking…");
+    setStatus(dom, "asking…");
+    const text = dom.q2Input.value || "";
 
-    const text = document.getElementById("q2").value || "";
-
-    /**
-     * mémoire
-     */
     const mem = loadMemory();
-    const payload = {
-      text,
-      memory: {
-        summary: mem.summary || "",
-        turns: mem.turns || []
-      }
-    };
-
-
-    const resp = await fetch("/api/speak_structured", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      //body: JSON.stringify({ text })
-      body: JSON.stringify(payload)
+    const data = await apiSpeakStructured(text, {
+      summary: mem.summary || "",
+      turns: mem.turns || [],
     });
 
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || "Server error");
+    updateStructuredUI(dom, data);
+    dom.replyEl.textContent = data.replyText || "(vide)";
 
-    // UI: badges
-    intentPill.textContent = `intent: ${data.intent || "—"}`;
-    emotionPill.textContent = `emotion: ${data.emotion || "—"}`;
-    confPill.textContent = `conf: ${typeof data.confidence === "number" ? data.confidence.toFixed(2) : "—"}`;
-
-    // UI: avatar
-    const emo = data.emotion || "neutral";
-    avatar.src = emotionToAvatar[emo] || emotionToAvatar.neutral;
-
-    // Text box reuse
-    replyEl.textContent = data.replyText || "(vide)";
-    
     pushTurn("user", text);
     pushTurn("assistant", data.replyText || "");
 
+    if (data.audioMp3Base64) setPlayerFromMp3Base64(dom.player, data.audioMp3Base64);
 
-    // Audio
-    const audioBlob = base64ToBlob(data.audioMp3Base64, "audio/mpeg");
-    player.src = URL.createObjectURL(audioBlob);
-
-    setStatus("playing");
-    await player.play().catch(() => {});
+    setStatus(dom, "playing");
+    await dom.player.play().catch(() => {});
   } catch (e) {
     console.error(e);
-    setStatus("error (voir console)");
+    setStatus(dom, "error (voir console)");
   } finally {
-    setStatus("idle");
+    setStatus(dom, "idle");
+  }
+});
+
+// reset
+dom.resetBtn.addEventListener("click", () => {
+  resetMemory();
+  dom.replyEl.textContent = "—";
+  resetStructuredUI(dom);
+});
+
+
+
+
+
+// ===== POC2: Realtime =====
+dom.realTime.addEventListener("click", async () => {
+  try {
+    // Optionnel : si tu veux que le bouton fasse toggle connect/disconnect
+    if (isRealtimeConnected()) {
+      await disconnectRealtime();
+      setStatus(dom, "realtime: disconnected");
+      rtSetText("—");
+      return;
+    }
+
+    //await connectRealtime({ dom, setStatus, warmup: true, debug: true });
+    await connectRealtime({ dom, setStatus, warmup: false, debug: true });
+  } catch (e) {
+    console.error(e);
+    setStatus(dom, "realtime: error (voir console)");
+    await disconnectRealtime();
+    rtSetText("—");
   }
 });
 
 
-/**
- * Bouton reset
- */
-document.getElementById("resetConv").addEventListener("click", () => {
-  resetMemory();
+function setPTTBadge(on) {
+  if (!dom.statusEl) return;
+  dom.statusEl.dataset.ptt = on ? "1" : "0";
+}
 
-  // reset UI (optionnel)
-  replyEl.textContent = "—";
-  intentPill.textContent = "intent: —";
-  emotionPill.textContent = "emotion: —";
-  confPill.textContent = "conf: —";
-  avatar.src = "./avatars/neutral.png";
+
+
+let spaceDown = false;
+
+window.addEventListener("keydown", (e) => {
+  if (e.code !== "Space") return;
+  if (!isRealtimeConnected()) return;
+  if (spaceDown) return;
+
+  spaceDown = true;
+  realtimeStartTalking();
+  setPTTBadge(true);
+  beep(880, 50);
+  setStatus(dom, "realtime: 🎙️ REC (hold space)");
+  e.preventDefault();
 });
+
+window.addEventListener("keyup", (e) => {
+  if (e.code !== "Space") return;
+  if (!isRealtimeConnected()) return;
+
+  spaceDown = false;
+  setPTTBadge(false);
+  beep(660, 50);
+  realtimeStopTalkingAndRespond();
+  setStatus(dom, "realtime: 🤖 thinking…");
+  e.preventDefault();
+});
+
+
+let audioCtx = null;
+function beep(freq = 880, ms = 50) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = "sine";
+    o.frequency.value = freq;
+    g.gain.value = 0.03; // discret
+    o.connect(g);
+    g.connect(audioCtx.destination);
+    o.start();
+    setTimeout(() => {
+      o.stop();
+      o.disconnect();
+      g.disconnect();
+    }, ms);
+  } catch {}
+}
+
+function rtSetText(txt) {
+  if (dom.transcriptrt) dom.transcriptrt.textContent = txt || "—";
+}
