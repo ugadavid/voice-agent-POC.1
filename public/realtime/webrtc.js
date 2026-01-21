@@ -51,6 +51,32 @@ function bindDataChannel({ dom, setStatus, warmup, debug }) {
         if (t) logRT(dom, `You: ${t}`);
       }
 
+
+      
+      // Transcript de la voix de l’assistant (audio -> texte)
+      if (evt.type === "response.output_audio_transcript.delta") {
+        const d = evt?.delta;
+        if (!d) return;
+
+        const el = dom?.transcriptrt;
+        if (!el) return;
+
+        // On commence une ligne Assistant si besoin
+        // (évite le "includes('Assistant:')" qui devient faux au bout de plusieurs tours)
+        const txt = el.textContent || "";
+        const lastLine = txt.split("\n").slice(-1)[0] || "";
+        if (!lastLine.startsWith("Assistant:")) logRT(dom, "Assistant: ");
+
+        el.textContent += d;
+      }
+
+      if (evt.type === "response.output_audio_transcript.done") {
+        const el = dom?.transcriptrt;
+        if (el) el.textContent += "\n";
+      }
+
+
+
       if (evt.type === "response.output_text.delta") {
         const d = evt?.delta;
         if (!d) return;
