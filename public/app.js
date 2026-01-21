@@ -146,7 +146,10 @@ dom.realTime.addEventListener("click", async () => {
       await disconnectRealtime();
       setStatus(dom, "realtime: disconnected");
       rtSetText("—");
+      rtToggleBtnTxt("Real Time GPT+");
       return;
+    } else {
+      rtToggleBtnTxt("Real Time GPT+ ready...");
     }
 
     //await connectRealtime({ dom, setStatus, warmup: true, debug: true });
@@ -218,3 +221,10 @@ function beep(freq = 880, ms = 50) {
 function rtSetText(txt) {
   if (dom.transcriptrt) dom.transcriptrt.textContent = txt || "—";
 }
+
+
+function rtToggleBtnTxt(txt) {
+  if (!dom.realTime) return;
+  dom.realTime.textContent = txt;
+}
+

@@ -1,3 +1,5 @@
+//  src/prompts/structuredInstructions.js
+
 export const STRUCTURED_INSTRUCTIONS = `
 
 Tu dois produire un objet JSON STRICT, rien d'autre (aucun texte autour).

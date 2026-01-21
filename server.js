@@ -5,6 +5,7 @@ import { PORT } from "./src/config.js";
 import { openai } from "./src/openaiClient.js";
 import { SYSTEM_PROMPT } from "./src/prompts/systemPrompt.js";
 import { STRUCTURED_INSTRUCTIONS } from "./src/prompts/structuredInstructions.js";
+import { REALTIME_PROMPT } from "./src/prompts/realtimePrompt.js";
 
 import { registerTalkRoute } from "./src/routes/talk.js";
 import { registerSpeakRoute } from "./src/routes/speak.js";
@@ -22,7 +23,8 @@ app.use(express.json({ limit: LIMITS.JSON_BODY_MB }));
 app.use(express.text({ type: ["application/sdp", "text/plain"] }));
 
 // Dépendances partagées
-const deps = { openai, SYSTEM_PROMPT, STRUCTURED_INSTRUCTIONS };
+//const deps = { openai, SYSTEM_PROMPT, STRUCTURED_INSTRUCTIONS };
+const deps = { openai, SYSTEM_PROMPT, STRUCTURED_INSTRUCTIONS, REALTIME_PROMPT };
 
 // Routes
 registerTalkRoute(app, deps);

@@ -1,3 +1,5 @@
+//  /src/prompts/systemPrompt.js
+
 export const SYSTEM_PROMPT = `
 CONTEXTE DU PROJET
 
