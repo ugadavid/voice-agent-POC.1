@@ -9,7 +9,7 @@ function sendEvent(type, payload = {}) {
   return true;
 }
 
-function bindDataChannel({ dom, setStatus, warmup, debug }) {
+function bindDataChannel({ dom, setStatus, warmup, debug, onUserText, onAssistantText, onUserEmotionText }) {
   rtState.dc.onopen = () => {
     if (debug) console.log("datachannel open");
     setStatus?.(dom, "realtime: connected");
@@ -18,6 +18,11 @@ function bindDataChannel({ dom, setStatus, warmup, debug }) {
   rtState.dc.onclose = () => {
     if (debug) console.log("datachannel closed");
   };
+
+
+
+  let lastUserText = "";
+  let assistantBuf = "";
 
   rtState.dc.onmessage = (e) => {
     try {
@@ -48,8 +53,18 @@ function bindDataChannel({ dom, setStatus, warmup, debug }) {
 
       if (evt.type === "conversation.item.input_audio_transcription.completed") {
         const t = evt?.transcript;
-        if (t) logRT(dom, `You: ${t}`);
+        if (t) {
+          logRT(dom, `You: ${t}`);
+          lastUserText = t;
+
+          // mémoire
+          if (typeof onUserText === "function") onUserText(t);
+
+          // émotion immédiate (optionnel)
+          if (typeof onUserEmotionText === "function") onUserEmotionText(t);
+        }
       }
+
 
 
       
@@ -57,6 +72,8 @@ function bindDataChannel({ dom, setStatus, warmup, debug }) {
       if (evt.type === "response.output_audio_transcript.delta") {
         const d = evt?.delta;
         if (!d) return;
+
+        if (d) assistantBuf += d;
 
         const el = dom?.transcriptrt;
         if (!el) return;
@@ -71,9 +88,20 @@ function bindDataChannel({ dom, setStatus, warmup, debug }) {
       }
 
       if (evt.type === "response.output_audio_transcript.done") {
+        // 1) afficher la fin de la ligne dans le <pre>
         const el = dom?.transcriptrt;
         if (el) el.textContent += "\n";
+
+        // 2) récupérer le texte final assistant (accumulé via .delta)
+        const finalAssistantText = assistantBuf.trim();
+        assistantBuf = "";
+
+        // 3) déclencher l'analyse émotion/intention
+        if (finalAssistantText && typeof onAssistantText === "function") {
+          onAssistantText(finalAssistantText, lastUserText);
+        }
       }
+
 
 
 
@@ -97,7 +125,7 @@ function bindDataChannel({ dom, setStatus, warmup, debug }) {
   };
 }
 
-export async function connectWebRTC({ dom, setStatus, warmup = false, debug = false } = {}) {
+export async function connectWebRTC({ dom, setStatus, warmup = false, debug = false, onUserText, onAssistantText, onUserEmotionText } = {}) {
   setStatus?.(dom, "realtime: connecting…");
 
   rtState.pc = new RTCPeerConnection();
@@ -110,7 +138,7 @@ export async function connectWebRTC({ dom, setStatus, warmup = false, debug = fa
   }
 
   rtState.dc = rtState.pc.createDataChannel("oai-events");
-  bindDataChannel({ dom, setStatus, warmup, debug });
+  bindDataChannel({ dom, setStatus, warmup, debug, onUserText, onAssistantText, onUserEmotionText });
 
   // Micro
   rtState.localStream = await navigator.mediaDevices.getUserMedia({

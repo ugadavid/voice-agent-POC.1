@@ -7,6 +7,7 @@ export function registerSpeakStructuredRoute(app, { openai, SYSTEM_PROMPT, STRUC
   app.post("/api/speak_structured", async (req, res) => {
     try {
       const userText = (req.body?.text || "").trim();
+      const noAudio = !!req.body?.noAudio;
 
       const memTurns = Array.isArray(req.body?.memory?.turns) ? req.body.memory.turns : [];
       const memSummary = String(req.body?.memory?.summary || "").trim();
@@ -64,10 +65,10 @@ export function registerSpeakStructuredRoute(app, { openai, SYSTEM_PROMPT, STRUC
         parsed.replyText = parsed.replyText.replace(/^./, (c) => c.toUpperCase());
       }
 
-      const audioMp3Base64 = await synthesizeMp3Base64(
-        openai,
-        parsed.replyText
-      );
+      let audioMp3Base64 = null;
+      if (!noAudio) {
+        audioMp3Base64 = await synthesizeMp3Base64(openai, parsed.replyText);
+      }
 
 
       res.json({

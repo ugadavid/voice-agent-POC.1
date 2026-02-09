@@ -11,6 +11,7 @@ import { registerTalkRoute } from "./src/routes/talk.js";
 import { registerSpeakRoute } from "./src/routes/speak.js";
 import { registerSpeakStructuredRoute } from "./src/routes/speakStructured.js";
 import { registerRealTimedRoute } from "./src/routes/realtime.js";
+import { registerRagSearchRoute } from "./src/routes/ragSearch.js";
 
 import { LIMITS } from "./src/constants.js";
 
@@ -31,6 +32,7 @@ registerTalkRoute(app, deps);
 registerSpeakRoute(app, deps);
 registerSpeakStructuredRoute(app, deps);
 registerRealTimedRoute(app, deps);
+registerRagSearchRoute(app, deps);
 
 // Start
 app.listen(PORT, () => {

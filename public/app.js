@@ -153,7 +153,55 @@ dom.realTime.addEventListener("click", async () => {
     }
 
     //await connectRealtime({ dom, setStatus, warmup: true, debug: true });
-    await connectRealtime({ dom, setStatus, warmup: false, debug: true });
+    await connectRealtime({ 
+      dom, 
+      setStatus, 
+      warmup: false, 
+      debug: true,
+
+      onUserText: (t) => {
+        // On nourrit la mémoire (optionnel mais utile)
+        pushTurn("user", t);
+      },
+
+      /*onAssistantText: async (assistantText, userText) => {
+        // On nourrit la mémoire
+        pushTurn("assistant", assistantText);
+
+        // On réutilise le pipeline structured pour intent/émotion/confidence
+        // On envoie plutôt le userText (si dispo), sinon fallback sur assistantText.
+        const mem = loadMemory();
+        const seed = (userText || "").trim() || assistantText;
+
+        try {
+          const data = await apiSpeakStructured(seed, {
+            summary: mem.summary || "",
+            turns: mem.turns || [],
+          }, { noAudio: true });
+
+          updateStructuredUI(dom, data);
+        } catch (e) {
+          console.error("emotion/intent analysis failed", e);
+        }
+      },*/
+
+      onUserEmotionText: async (t) => {
+        // analyse immédiate sur la phrase user
+        const mem = loadMemory();
+        try {
+          const data = await apiSpeakStructured(
+            t,
+            { summary: mem.summary || "", turns: mem.turns || [] },
+            { noAudio: true }
+          );
+          updateStructuredUI(dom, data);
+        } catch (e) {
+          console.error("emotion (user) failed", e);
+        }
+      },
+
+
+    });
   } catch (e) {
     console.error(e);
     setStatus(dom, "realtime: error (voir console)");

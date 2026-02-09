@@ -18,11 +18,11 @@ export async function apiSpeak(text) {
   return readJsonOrThrow(resp);
 }
 
-export async function apiSpeakStructured(text, memory) {
+export async function apiSpeakStructured(text, memory, opts = {}) {
   const resp = await fetch("/api/speak_structured", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, memory }),
+    body: JSON.stringify({ text, memory, ...opts }),
   });
   return readJsonOrThrow(resp);
 }
